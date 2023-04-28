@@ -19,11 +19,11 @@ import (
 	_ "net/http/pprof"
 	"sort"
 
+	"github.com/paratera/pbspro_exporter/collector"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/common/log"
 	"github.com/prometheus/common/version"
-	"github.com/paratera/pbspro_exporter/collector"
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
@@ -156,7 +156,7 @@ func main() {
 	log.Infoln("Starting pbspro_exporter", version.Info())
 	log.Infoln("Build context", version.BuildContext())
 
-	http.Handle(*metricsPath, newHandler(!*disableExporterMetrics, *maxRequests))
+	http.Handle(*metricsPath, newHandler(*disableExporterMetrics, *maxRequests))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html>
 			<head><title>PBSPro Exporter</title></head>
