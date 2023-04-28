@@ -1,11 +1,10 @@
 package collector
 
 import (
-	"strings"
-
+	"github.com/paratera/pbspro_exporter/lib/qstat"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/log"
-	"github.com/paratera/go_pbspro/qstat"
+	"strings"
 )
 
 func init() {
@@ -446,7 +445,15 @@ func (c *qstatCollector) updateQstatNode(ch chan<- prometheus.Metric) {
 		log.Errorln("Update Node State Failed ", err.Error())
 	}
 
+	stateM := make(map[string]int)
+	stateM["total"] = 0
 	for _, ss := range qstat.NodeState {
+		if _, ok := stateM[ss.State]; !ok {
+			stateM[ss.State] = 0
+		}
+		stateM[ss.State] = stateM[ss.State] + 1
+		stateM["total"] = stateM["total"] + 1
+
 		allMetrics = []qstatMetric{
 			{
 				name:       "node_pcpus",
@@ -525,6 +532,22 @@ func (c *qstatCollector) updateQstatNode(ch chan<- prometheus.Metric) {
 		labelsValue = []string{ss.NodeName, ss.Mom, ss.Ntype, ss.State, ss.Jobs, ss.ResourcesAvailableArch, ss.ResourcesAvailableHost, ss.ResourcesAvailableApplications, ss.ResourcesAvailablePlatform, ss.ResourcesAvailableSoftware, ss.ResourcesAvailableVnodes, ss.Sharing}
 	}
 
+	for state, value := range stateM {
+		desc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, qstatCollectorSubSystem, "node_state"),
+			"node state gauge",
+			[]string{"state"},
+			nil,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			desc,
+			prometheus.GaugeValue,
+			float64(value),
+			state,
+		)
+	}
+
 	for _, m := range allMetrics {
 
 		labelsName := []string{"NodeName", "Mom", "Ntype", "NodeState", "RunningJobs", "ResourcesAvailableArch", "ResourcesAvailableHost", "ResourcesAvailableApplications", "ResourcesAvailablePlatform", "ResourcesAvailableSoftware", "ResourcesAvailableVnodes", "Sharing"}
@@ -544,6 +567,14 @@ func (c *qstatCollector) updateQstatNode(ch chan<- prometheus.Metric) {
 		)
 	}
 
+}
+
+var JobStateEnum = map[string]string{
+	"R": "Running",
+	"H": "Held",
+	"Q": "Queued",
+	"S": "Suspend",
+	"W": "Waiting",
 }
 
 func (c *qstatCollector) updateQstatJobs(ch chan<- prometheus.Metric) {
@@ -571,7 +602,20 @@ func (c *qstatCollector) updateQstatJobs(ch chan<- prometheus.Metric) {
 		log.Errorln("Update Jobs State Failed. ", err.Error())
 	}
 
+	stateM := make(map[string]int)
+	stateM["Total"] = 0
+	stateM["Others"] = 0
 	for _, ss := range qstat.JobsState {
+		state := "Others"
+		if stateReal, ok := JobStateEnum[ss.JobState]; ok {
+			state = stateReal
+		}
+		if _, ok := stateM[state]; !ok {
+			stateM[state] = 0
+		}
+		stateM[state] = stateM[state] + 1
+		stateM["Total"] = stateM["Total"] + 1
+
 		metrics = []qstatMetric{
 			{
 				name:       "jobs_resources_used_cpupercent",
@@ -648,7 +692,7 @@ func (c *qstatCollector) updateQstatJobs(ch chan<- prometheus.Metric) {
 			{
 
 				name:       "jobs_resources_used_cput",
-				desc:       "pbspro_exporter: Jobs Resources Used Cput",
+				desc:       "pbspro_exporter: Jobs Resources Used Cput", // 指作业的所有进程使用cpu最长时间
 				value:      float64(ss.ResourcesUsedCput),
 				metricType: prometheus.GaugeValue,
 				extraLabel: []string{"JobName",
@@ -792,7 +836,7 @@ func (c *qstatCollector) updateQstatJobs(ch chan<- prometheus.Metric) {
 			},
 			{
 				name:       "jobs_resources_used_ncpus",
-				desc:       "pbspro_exporter: Jobs Resources Used Ncpus.",
+				desc:       "pbspro_exporter: Jobs Resources Used Ncpus.", // 指作业需要的cpu个数
 				value:      float64(ss.ResourcesUsedNcpus),
 				metricType: prometheus.GaugeValue,
 				extraLabel: []string{"JobName",
@@ -936,7 +980,7 @@ func (c *qstatCollector) updateQstatJobs(ch chan<- prometheus.Metric) {
 			},
 			{
 				name:       "jobs_resources_used_walltime",
-				desc:       "pbspro_exporter: Jobs Resources Used WallTime.",
+				desc:       "pbspro_exporter: Jobs Resources Used WallTime.", // 指作业处于运行状态的最长时间
 				value:      float64(ss.ResourcesUsedWallTime),
 				metricType: prometheus.GaugeValue,
 				extraLabel: []string{"JobName",
@@ -1008,13 +1052,79 @@ func (c *qstatCollector) updateQstatJobs(ch chan<- prometheus.Metric) {
 			},
 			{
 				name:       "jobs_ctime",
-				desc:       "pbspro_exporter: Jobs Çtime.",
+				desc:       "pbspro_exporter: Jobs Çtime : The time that the job was created",
 				value:      float64(ss.Ctime),
 				metricType: prometheus.GaugeValue,
+				extraLabel: []string{"JobName",
+					"JobOwner",
+					"JobState",
+					"Queue",
+					"Server",
+					"CheckPoint",
+					"ErrorPath",
+					"ExecHost",
+					"ExecVnode",
+					"HoldType",
+					"JoinPath",
+					"KeepFiles",
+					"MailPoints",
+					"OutputPath",
+					"ResourceListPlace",
+					"ResourceListSelect",
+					"ResourceListSoftware",
+					"JobDir",
+					"VariableList",
+					"VariableListHome",
+					"VariableListLang",
+					"VariableListLogname",
+					"VariableListPath",
+					"VariableListMail",
+					"VariableListShell",
+					"VariableListWrokdir",
+					"VariableListSystem",
+					"VariableListQueue",
+					"VariableListHost",
+					"Comment",
+					"SubmitArguments",
+					"Project",
+				},
+				extraLabelValue: []string{ss.JobName,
+					strings.Replace(ss.JobOwner, "@", "_", -1),
+					ss.JobState,
+					ss.Queue,
+					ss.Server,
+					ss.CheckPoint,
+					ss.ErrorPath,
+					ss.ExecHost,
+					ss.ExecVnode,
+					ss.HoldType,
+					ss.JoinPath,
+					ss.KeepFiles,
+					ss.MailPoints,
+					ss.OutputPath,
+					ss.ResourceListPlace,
+					ss.ResourceListSelect,
+					ss.ResourceListSoftware,
+					ss.JobDir,
+					ss.VariableList,
+					strings.Replace(ss.VariableListHome, "/", "-1", -1),
+					strings.Replace(strings.Replace(ss.VariableListLang, ".", "_", -1), "-", "_", -1),
+					ss.VariableListLogname,
+					ss.VariableListPath,
+					ss.VariableListMail,
+					ss.VariableListShell,
+					strings.Replace(ss.VariableListWorkdir, "/", "_", -1),
+					ss.VariableListSystem,
+					ss.VariableListQueue,
+					ss.VariableListHost,
+					ss.Comment,
+					ss.SubmitArguments,
+					ss.Project,
+				},
 			},
 			{
 				name:       "jobs_mtime",
-				desc:       "pbspro_exporter: Jobs Mtime.",
+				desc:       "pbspro_exporter: Jobs Mtime : The time that the job was last modified, changed state, or changed locations",
 				value:      float64(ss.Mtime),
 				metricType: prometheus.GaugeValue,
 				extraLabel: []string{"JobName",
@@ -1158,7 +1268,7 @@ func (c *qstatCollector) updateQstatJobs(ch chan<- prometheus.Metric) {
 			},
 			{
 				name:       "jobs_qtime",
-				desc:       "pbspro_exporter: Jobs Qtime",
+				desc:       "pbspro_exporter: Jobs Qtime : The time that the job entered the current queue. ",
 				value:      float64(ss.Qtime),
 				metricType: prometheus.GaugeValue,
 				extraLabel: []string{"JobName",
@@ -1518,7 +1628,7 @@ func (c *qstatCollector) updateQstatJobs(ch chan<- prometheus.Metric) {
 			},
 			{
 				name:       "jobs_stime",
-				desc:       "pbspro_exporter: Jobs stime",
+				desc:       "pbspro_exporter: Jobs stime : The time when the job started execution.",
 				value:      float64(ss.Stime),
 				metricType: prometheus.GaugeValue,
 				extraLabel: []string{"JobName",
@@ -1734,7 +1844,7 @@ func (c *qstatCollector) updateQstatJobs(ch chan<- prometheus.Metric) {
 			},
 			{
 				name:       "jobs_etime",
-				desc:       "pbspro_exporter: Jobs Etime",
+				desc:       "pbspro_exporter: Jobs Etime : The time that the job became eligible to run",
 				value:      float64(ss.Etime),
 				metricType: prometheus.GaugeValue,
 				extraLabel: []string{"JobName",
@@ -1806,7 +1916,7 @@ func (c *qstatCollector) updateQstatJobs(ch chan<- prometheus.Metric) {
 			},
 			{
 				name:       "jobs_runcount",
-				desc:       "pbspro_exporter: Jobs RunCount",
+				desc:       "pbspro_exporter: Jobs RunCount : The number of times the server has run the job.",
 				value:      float64(ss.RunCount),
 				metricType: prometheus.GaugeValue,
 				extraLabel: []string{"JobName",
@@ -1880,6 +1990,28 @@ func (c *qstatCollector) updateQstatJobs(ch chan<- prometheus.Metric) {
 		allMetrics = append(allMetrics, metrics...)
 	}
 
+	for _, state := range JobStateEnum {
+		if _, ok := stateM[state]; !ok {
+			stateM[state] = 0
+		}
+	}
+
+	for state, value := range stateM {
+		desc := prometheus.NewDesc(
+			prometheus.BuildFQName(namespace, qstatCollectorSubSystem, "job_state"),
+			"job state gauge",
+			[]string{"state"},
+			nil,
+		)
+
+		ch <- prometheus.MustNewConstMetric(
+			desc,
+			prometheus.GaugeValue,
+			float64(value),
+			state,
+		)
+	}
+
 	for _, m := range allMetrics {
 
 		desc := prometheus.NewDesc(
@@ -1895,7 +2027,5 @@ func (c *qstatCollector) updateQstatJobs(ch chan<- prometheus.Metric) {
 			m.value,
 			m.extraLabelValue...,
 		)
-
 	}
-
 }
